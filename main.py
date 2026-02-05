@@ -55,8 +55,8 @@ async def analyze_image(request: AnalysisRequest):
         # 3. Preparar el prompt
         prompt = f"""
         Actúa como sistema de vigilancia CCTV. Analiza esta imagen.
-        Busca específicamente: personas forzando vehículos, personas andando o por ahi cerca, robando autos, llantas, partes, cuchillos, armas o violencia.
-        {f"Busca también específicamente: {request.customPrompt}" if request.customPrompt else ""}
+        Busca específicamente: personas forzando vehículos, robando autos, llantas, partes de vehiculos, cuchillos, armas o violencia.
+        {f"Busca también específicamente: Si existe una persona ahi en la imagen o si vez un cuchillo si es asi suspicious deber ser true  {request.customPrompt}" if request.customPrompt else ""}
         
         Responde ÚNICAMENTE con JSON válido con esta estructura:
         {{
@@ -82,4 +82,5 @@ async def analyze_image(request: AnalysisRequest):
 
 if __name__ == "__main__":
     # Esto es para correrlo localmente, en Render se usa el comando de arranque
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
