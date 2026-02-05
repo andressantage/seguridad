@@ -7,15 +7,15 @@ from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# Cargar variables de entorno (para desarrollo local)
+# Cargar variables de entorno
 load_dotenv()
 
 app = FastAPI()
 
-# Configuración de CORS (Permite que tu HTML se conecte al servidor)
+# Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, pon aquí la URL de tu frontend
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,7 +28,6 @@ if not API_KEY:
 
 genai.configure(api_key=API_KEY)
 
-# Modelo de datos que esperamos recibir del HTML
 class AnalysisRequest(BaseModel):
     image: str
     customPrompt: str = ""
@@ -40,39 +39,43 @@ def home():
 @app.post("/analyze")
 async def analyze_image(request: AnalysisRequest):
     try:
-        # 1. Limpiar la imagen Base64 (quitar el encabezado "data:image/jpeg;base64,")
+        # 1. Limpiar la imagen Base64
         if "," in request.image:
             clean_image_data = request.image.split(",")[1]
         else:
             clean_image_data = request.image
 
-        # 2. Configurar el modelo
+        # 2. Configurar el modelo (Mantenemos gemini-2.5-flash para velocidad)
         model = genai.GenerativeModel(
             model_name="gemini-2.5-flash",
             generation_config={"response_mime_type": "application/json"}
         )
 
-        # 3. Preparar el prompt
+        # 3. Preparar el prompt MODIFICADO PARA DETECCIÓN HUMANA
         prompt = f"""
-        Actúa como sistema de vigilancia CCTV. Analiza esta imagen.
-        Busca específicamente: personas forzando vehículos, robando autos, llantas, partes de vehiculos, cuchillos, armas o violencia.
-        {f"Busca también específicamente: Si existe una persona ahi en la imagen o si vez un cuchillo si es asi suspicious deber ser true  {request.customPrompt}" if request.customPrompt else ""}
+        Eres un sistema de vigilancia de alta seguridad. Tu objetivo principal es detectar la presencia de seres humanos.
+        
+        REGLA DE AMENAZA:
+        - Si detectas a una persona, un hombre, una mujer, un niño, o cualquier cosa que se parezca a un ser humano o silueta humana, DEBES marcar "suspicious" como true.
+        - La simple presencia de un humano en la imagen se considera una amenaza para este sistema.
+        - Si NO observas ningún ser humano, marca "suspicious" como false.
+        
+        Contexto adicional solicitado: {request.customPrompt if request.customPrompt else "Ninguno"}
         
         Responde ÚNICAMENTE con JSON válido con esta estructura:
         {{
           "suspicious": boolean,
-          "description": "breve descripción real de lo observado en español"
+          "description": "Describe brevemente en español si ves humanos (hombres, mujeres, niños) y qué están haciendo. Si no ves humanos, indica que el área está despejada."
         }}
         """
 
-        # 4. Enviar a Gemini (Texto + Imagen)
+        # 4. Enviar a Gemini
         response = model.generate_content([
             prompt,
             {"mime_type": "image/jpeg", "data": clean_image_data}
         ])
 
         # 5. Parsear y devolver la respuesta
-        # Gemini devuelve un string JSON, lo convertimos a dict de Python
         result_json = json.loads(response.text)
         return result_json
 
@@ -81,6 +84,4 @@ async def analyze_image(request: AnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    # Esto es para correrlo localmente, en Render se usa el comando de arranque
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
