@@ -6,10 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 from dotenv import load_dotenv
+import uuid
+from supabase import create_client, Client
+import base64
 
 # Cargar variables de entorno
 load_dotenv()
-
 app = FastAPI()
 
 # Configuración de CORS
@@ -20,6 +22,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Configura Supabase (agrega estas variables en tu .env)
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY") # Usa la SERVICE KEY para poder escribir sin problemas de RLS
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Configurar Gemini
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -77,6 +84,39 @@ async def analyze_image(request: AnalysisRequest):
 
         # 5. Parsear y devolver la respuesta
         result_json = json.loads(response.text)
+        # 5. LOGICA DE GUARDADO SOLO SI ES SOSPECHOSO
+        if result_json.get("suspicious"):
+            print("⚠️ Amenaza detectada. Guardando imagen y datos...")
+            
+            try:
+                # A. Generar nombre único para la imagen
+                file_name = f"{str(uuid.uuid4())}.jpg"
+                
+                # B. Decodificar Base64 a bytes para subir
+                # (Asumiendo que clean_image_data tiene el string base64 limpio)
+                image_bytes = base64.b64decode(clean_image_data)
+                
+                # C. Subir imagen al Storage de Supabase
+                supabase.storage.from_("sentinel-images").upload(
+                    path=file_name,
+                    file=image_bytes,
+                    file_options={"content-type": "image/jpeg"}
+                )
+                
+                # D. Guardar el registro en la tabla 'detections'
+                data_insert = {
+                    "is_suspicious": True,
+                    "description": result_json.get("description"),
+                    "image_path": f"sentinel-images/{file_name}" # Guardamos la ruta, no el archivo
+                }
+                
+                supabase.table("detections").insert(data_insert).execute()
+                print("✅ Datos e imagen guardados en Supabase.")
+                
+            except Exception as db_error:
+                print(f"❌ Error guardando en Supabase: {db_error}")
+        else:
+            print("✅ Sin amenazas. No se guarda nada.")
         return result_json
 
     except Exception as e:
